@@ -1,6 +1,6 @@
 '''
-args: -p <port> -aw <AA_Weather-ip>:<AA_Weather-port> -ak <kafka-ip>:<kafka-port(29092)>
-python AA_Engine.py -p 3333 -aw "localhost:1111" -ak "localhost:29092"
+args: -p <port> -ak <kafka-ip>:<kafka-port(29093)>
+python AA_Engine.py -p 3333 -ak "localhost:29093"
 
 - FOR PLAYER
 client.send_obj(("user","password"))
@@ -36,7 +36,6 @@ from kafka.errors import KafkaError
 import argparse
 ap = argparse.ArgumentParser()
 ap.add_argument("-p", "--port", required=True, type=int)
-ap.add_argument("-aw", "--weatheraddr", required=True, type=str)
 ap.add_argument("-ak", "--kafkaaddr", required=True, type=str)
 ap.add_argument("-ms", "--mapsize", default=20, type=int)
 ap.add_argument("-mp", "--maxplayers", default=20, type=int)
@@ -44,10 +43,12 @@ ap.add_argument("-t", "--gametimeout", default=6000, type=int)
 args = vars(ap.parse_args())
 
 ADDR = ("", args["port"])
-ADDR__WEATHER = getaddr(args["weatheraddr"])
 ADDR__KAFKA = args["kafkaaddr"]
 
+FDATA_WEATHERS = "../data/weathers.csv"
+FKEY_OPENWEATHER_KEY = "../keys/openweather.key"
 FDATA_DB = "../data/db.db"
+FKEYS_SSL = ("../keys/cert.pem", "../keys/key.pem")
 
 MAPSIZE = args["mapsize"]
 MAXPLAYERS = args["maxplayers"]
@@ -71,17 +72,29 @@ MSGEXCEPT_CONNKAFKA = "Servidor de colas no disponible"
 
 #==================================================
 
+import requests
 class Requests():
 
     @staticmethod
     def get_cities(n):
+        import csv
+
+        with open(FKEY_OPENWEATHER_KEY) as f:
+            OPENWEATHER_KEY = f.read()
+        UNITS = "metric"
+        URL = "https://api.openweathermap.org/data/2.5/weather?appid={key}&units={units}&q={city}"
+
+        with open(FDATA_WEATHERS) as f:
+            weathers = list(csv.reader(f, delimiter=";"))
+
         cities = set()
-        while(len(cities) < n):
-            with MySocket("TCP", ADDR__WEATHER) as client:
-                city = client.recv_obj()
-                if city["city"] not in cities:
-                    cities.add(city["city"])
-                    yield city
+        while len(cities) < n:
+            city = random.choice(weathers)[0]
+            if city not in cities:
+                cities.add(city)
+                res = requests.get(URL.format(key=OPENWEATHER_KEY, units=UNITS, city=city))
+                temp = json.loads(res.text)["main"]["temp"]
+                yield {"city":city, "temperature":temp}
 
 
 class Player():
@@ -296,7 +309,7 @@ class Map():
 class Game():
     def __init__(self, map, players, starttime):
         self.map:Map = map
-        self.players:list[Player] = players
+        self.players:dict[str,Player] = players
         self.starttime:float = starttime
 
     def __str__(self):
@@ -471,8 +484,11 @@ class ConnHumanPlayer(HumanPlayer):
             """
             ,(self.alias,)
         )
-        user_fetch = res.fetchone()
-        return user_fetch is not None and user_fetch[0] == self.password
+        data_fetch = res.fetchone()
+        if data_fetch is None:
+            return False
+        salt, hash = json.loads(data_fetch[0])
+        return data_fetch is not None and hash == hashpasswd(self.password, salt)[1]
 
 
 def print_count(text, textargs, nreverselines):
@@ -548,11 +564,11 @@ def handle_player_join(conn, addr, server, players):
 #==================================================
 
 def gameplay(*, game=None, players=None):
-    producer = MyKafka.Producer(
+    producer = MyKafka.SecureProducer(
         addr = ADDR__KAFKA
     )
 
-    consumer = MyKafka.Consumer(
+    consumer = MyKafka.SecureConsumer(
         addr = ADDR__KAFKA,
         topic = "move",
         group = "engine"
@@ -618,7 +634,10 @@ def gameplay(*, game=None, players=None):
 
 oldgameplay = Game.load(FDATA_DB)
 if oldgameplay:
-    gameplay(game=oldgameplay)
+    try:
+        gameplay(game=oldgameplay)
+    except MyKafka.KafkaError as e:
+        print(toprint_exception(MSGEXCEPT_CONNKAFKA, e))
 
 while True:
     res = input("Crear partida? (s/n): ")
@@ -629,7 +648,7 @@ while True:
 
     print("Esperando jugadores...")
 
-    with MySocket("TCP", ADDR) as server:
+    with MySecureSocket("TCP", ADDR) as server:
         server.settimeout(0.1) #Any time
 
         print_count(PRINT_USERS_JOIN, (0, MAXPLAYERS), -1)
@@ -638,7 +657,7 @@ while True:
 
         while True:
             try:
-                conn, addr = server.accept()
+                conn, addr = server.accept(cert=FKEYS_SSL)
                 threading.Thread(
                     target=handle_player_join,
                     args=(conn, addr, server, players),

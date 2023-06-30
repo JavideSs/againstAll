@@ -1,6 +1,6 @@
 '''
-args: -ak <kafka-ip>:<kafka-port(29092)>
-python AA_NPC.py -ak "localhost:29092"
+args: -ak <kafka-ip>:<kafka-port(29093)>
+python AA_NPC.py -ak "localhost:29093"
 '''
 
 from common_utils import *
@@ -35,11 +35,11 @@ class NPCGame():
     def __init__(self):
         self.username = "NPC"+str(uuid.uuid1())
 
-        self.producer = MyKafka.Producer(
+        self.producer = MyKafka.SecureProducer(
             addr = ADDR__KAFKA
         )
 
-        self.consumer = MyKafka.Consumer(
+        self.consumer = MyKafka.SecureConsumer(
             addr = ADDR__KAFKA,
             topic = "map",
         )

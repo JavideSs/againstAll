@@ -1,16 +1,18 @@
 '''
-args: -ar <AA_Registry-ip>:<AA_Registry-port> -ae <AA_Engine-ip>:<AA_Engine-port> -ak <kafka-ip>:<kafka-port(29092)>
-python AA_Player.py -ar "localhost:2222" -ae "localhost:3333" -ak "localhost:29092"
+args: -ar <AA_Registry-ip>:<AA_Registry-port> -ae <AA_Engine-ip>:<AA_Engine-port> -ak <kafka-ip>:<kafka-port(29093)>
+python AA_Player.py -ar "https://localhost:2220" -ae "localhost:3333" -ak "localhost:29093"
 '''
 
 from common_utils import *
 
-import json, time
+import time, json
 
 import socket
 
 from kafka import KafkaProducer, KafkaConsumer
 from kafka.errors import KafkaError
+
+import requests
 
 import curses, curses.panel
 
@@ -24,7 +26,9 @@ ap.add_argument("-ak", "--kafkaaddr", required=True, type=str)
 ap.add_argument("-ms", "--mapsize", default=20, type=int)
 args = vars(ap.parse_args())
 
-ADDR__REGISTRY = getaddr(args["registryaddr"])
+registry_with_apirest = lambda: args["registryaddr"].startswith("http")
+
+ADDR__REGISTRY = args["registryaddr"] if registry_with_apirest() else getaddr(args["registryaddr"])
 ADDR__ENGINE = getaddr(args["engineaddr"])
 ADDR__KAFKA = args["kafkaaddr"]
 
@@ -317,11 +321,11 @@ class PlayerGame():
         self.board = MyCurses.Board(screen, x,y, MAPSIZE)
         self.refresh()
 
-        self.producer = MyKafka.Producer(
+        self.producer = MyKafka.SecureProducer(
             addr = ADDR__KAFKA
         )
 
-        self.consumer = MyKafka.Consumer(
+        self.consumer = MyKafka.SecureConsumer(
             addr = ADDR__KAFKA,
             topic = "map",
         )
@@ -338,7 +342,7 @@ class PlayerGame():
                     2 if j<SECTORSIZE else 3
                 light = (i+j)%2
 
-                if type(value) is list: #Is
+                if type(value) is list: #Is player
                     style = curses.color_pair(self.color_pairs["p"][sector][light])
                     if value[0][0].startswith("NPC"): #Is NPC
                         self.board.drawGrid(i,j, str(value[0][1]), style)
@@ -461,7 +465,7 @@ def login_game(screen):
         is_valid_account, msg_check_account = check_account(username, passwd)
         if is_valid_account:
             try:
-                with MySocket("TCP", ADDR__ENGINE) as client:
+                with MySecureSocket("TCP", ADDR__ENGINE) as client:
                     client.send_obj((username, passwd))
                     msg_login = client.recv_msg()
                     MyCurses.log(screen, 0,0, msg_login)
@@ -488,83 +492,74 @@ def login_game(screen):
     form.mainloop()
 
 
-def create_account(screen):
-    def create(values):
-        username, passwd = values["Usuario"],values["Contraseña"]
-        is_valid_account, msg_check_account = check_account(username, passwd)
-        if is_valid_account:
+def registry(screen, values, op):
+    username, passwd = values["Usuario"],values["Contraseña"]
+    is_valid_account, msg_check_account = check_account(username, passwd)
+    if is_valid_account:
+        if registry_with_apirest():
             try:
-                with MySocket("TCP", ADDR__REGISTRY) as client:
-                    client.send_msg("Create")
+                requests_disable_warning()
+                if op == "Create":
+                    res = requests.post(ADDR__REGISTRY, verify=False,
+                        json={"alias":username, "password":passwd}
+                    )
+                elif op == "Update":
+                    res = requests.patch(ADDR__REGISTRY, verify=False,
+                        json={"alias":username, "password":passwd,
+                              "newalias":values["Nuevo alias"], "newpassword":values["Nueva contraseña"]}
+                    )
+                elif op == "Delete":
+                    res = requests.delete(ADDR__REGISTRY, verify=False,
+                        json={"alias":username, "password":passwd}
+                    )
+                MyCurses.log(screen, 0,0, res.text)
+            except requests.exceptions.RequestException as e:
+                MyCurses.log(screen, 0,0, toprint_exception(MSGEXCEPT_CONNREGISTRY, e))
+        else:
+            try:
+                with MySecureSocket("TCP", ADDR__REGISTRY) as client:
+                    client.send_msg(op)
                     client.send_obj((username, passwd))
+                    if op == "Update":
+                        client.send_obj((values["Nuevo alias"],values["Nueva contraseña"]))
                     MyCurses.log(screen, 0,0, client.recv_msg())
             except socket.error as e:
                 MyCurses.log(screen, 0,0, toprint_exception(MSGEXCEPT_CONNREGISTRY, e))
-        else:
-            MyCurses.log(screen, 0,0, msg_check_account)
-        time.sleep(2)
+    else:
+        MyCurses.log(screen, 0,0, msg_check_account)
+    time.sleep(2)
 
+
+def create_account(screen):
     MyCurses.clear(screen, lambda: PlayerGame.drawBanner(screen))
     form = MyCurses.Form(screen, 2,5)
     form.addEntry("Usuario", style="default")
     form.addEntry("Contraseña", style="default")
-    form.addBtn("Crear cuenta", create, style="btn_accept")
+    form.addBtn("Crear cuenta", lambda values: registry(screen, values, "Create"), style="btn_accept")
     form.addBtn("Cancelar", "break", style="btn_cancel")
     form.refresh()
     form.mainloop()
 
 
 def edit_account(screen):
-    def edit(values):
-        username, passwd = values["Usuario"],values["Contraseña"]
-        newusername, newpasswd = values["Nuevo alias"],values["Nueva contraseña"]
-        is_valid_account, msg_check_account = check_account(username, passwd)
-        if is_valid_account:
-            try:
-                with MySocket("TCP", ADDR__REGISTRY) as client:
-                    client.send_msg("Update")
-                    client.send_obj((username, passwd))
-                    client.send_obj((newusername, newpasswd))
-                    MyCurses.log(screen, 0,0, client.recv_msg())
-            except socket.error as e:
-                MyCurses.log(screen, 0,0, toprint_exception(MSGEXCEPT_CONNREGISTRY, e))
-        else:
-            MyCurses.log(screen, 0,0, msg_check_account)
-        time.sleep(2)
-
     MyCurses.clear(screen, lambda: PlayerGame.drawBanner(screen))
     form = MyCurses.Form(screen, 2,5)
     form.addEntry("Usuario", style="default")
     form.addEntry("Contraseña", style="default")
     form.addEntry("Nuevo alias", style="default")
     form.addEntry("Nueva contraseña", style="default")
-    form.addBtn("Editar cuenta", edit, style="btn_accept")
+    form.addBtn("Editar cuenta", lambda values: registry(screen, values, "Update"), style="btn_accept")
     form.addBtn("Cancelar", "break", style="btn_cancel")
     form.refresh()
     form.mainloop()
 
 
 def delete_account(screen):
-    def delete(values):
-        username, passwd = values["Usuario"],values["Contraseña"]
-        is_valid_account, msg_check_account = check_account(username, passwd)
-        if is_valid_account:
-            try:
-                with MySocket("TCP", ADDR__REGISTRY) as client:
-                    client.send_msg("Delete")
-                    client.send_obj((username, passwd))
-                    MyCurses.log(screen, 0,0, client.recv_msg())
-            except socket.error as e:
-                MyCurses.log(screen, 0,0, toprint_exception(MSGEXCEPT_CONNREGISTRY, e))
-        else:
-            MyCurses.log(screen, 0,0, msg_check_account)
-        time.sleep(2)
-
     MyCurses.clear(screen, lambda: PlayerGame.drawBanner(screen))
     form = MyCurses.Form(screen, 2,5)
     form.addEntry("Usuario", style="default")
     form.addEntry("Contraseña", style="default")
-    form.addBtn("Eliminar cuenta", delete, style="btn_accept")
+    form.addBtn("Eliminar cuenta", lambda values: registry(screen, values, "Delete"), style="btn_accept")
     form.addBtn("Cancelar", "break", style="btn_cancel")
     form.refresh()
     form.mainloop()

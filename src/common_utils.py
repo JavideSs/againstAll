@@ -1,4 +1,8 @@
-import struct, pickle, json
+from importlib import import_module
+
+import struct, pickle, logging, json
+
+import ssl, hashlib, secrets
 
 
 def getaddr(arg):
@@ -19,10 +23,18 @@ def rundb(dbfile, query, parameters=()):
         db.commit()
     return res
 
+
 def exists_table_db(db, tablename):
     return len(rundb(db,
         "SELECT name FROM sqlite_master WHERE type='table' AND name='{}'".format(tablename)
     ).fetchall()) > 0
+
+
+def hashpasswd(passwd, salt=None):
+    if salt is None:
+        salt = secrets.token_hex(16)
+    hash = hashlib.sha256((passwd+salt).encode()).hexdigest()
+    return (salt, hash)
 
 #==================================================
 
@@ -34,15 +46,17 @@ class MyKafka():
     fdeserializer = lambda v: json.loads(v.decode("utf-8"))
 
     class Producer(KafkaProducer):
-        def __init__(self, addr):
+        def __init__(self, addr, *args, **kwargs):
             super().__init__(
                 bootstrap_servers = addr,
                 key_serializer = MyKafka.fserializer,
                 value_serializer = MyKafka.fserializer,
+                *args, **kwargs
             )
 
+
     class Consumer(KafkaConsumer):
-        def __init__(self, addr, topic, poll_timeout=1000, group=None):
+        def __init__(self, addr, topic, group=None, poll_timeout=1000, *args, **kwargs):
             super().__init__(
                 topic,
                 bootstrap_servers = addr,
@@ -51,6 +65,7 @@ class MyKafka():
                 value_deserializer = MyKafka.fdeserializer,
                 max_poll_records = 1,
                 auto_offset_reset = "latest",
+                *args, **kwargs
             )
             '''
             Kafka fun:
@@ -100,6 +115,37 @@ class MyKafka():
                     self.commit()
                 msg = newmsg
             return msg
+
+
+    class SecureProducer(Producer):
+        def __init__(self, addr, *args, **kwargs):
+            ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+
+            super().__init__(
+                addr = addr,
+                security_protocol = "SSL",
+                ssl_context = ctx,
+                *args, **kwargs
+            )
+
+
+    class SecureConsumer(Consumer):
+        def __init__(self, addr, topic, group=None, poll_timeout=1000, *args, **kwargs):
+            ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+
+            super().__init__(
+                addr = addr,
+                topic = topic,
+                group = group,
+                poll_timeout = poll_timeout,
+                security_protocol = "SSL",
+                ssl_context = ctx,
+                *args, **kwargs
+            )
 
 #==================================================
 
@@ -161,3 +207,65 @@ class MySocket(socket.socket):
 
     def recv_obj(self, client="None"):
         return pickle.loads(MySocket.recvall(self.conn[client]))
+
+
+class MySecureSocket(MySocket):
+    def sslwrap_client(socket):
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        return ctx.wrap_socket(socket, server_side=False)
+
+    def sslwrap_server(socket, cert):
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        ctx.load_cert_chain(*cert)
+        return ctx.wrap_socket(socket, server_side=True)
+
+    def __init__(self, type, addr):
+        super().__init__(type, addr)
+
+        if not self.is_server:
+            conn = MySecureSocket.sslwrap_client(self)
+            self.conn = {"None":conn}
+
+    def accept(self, cert):
+        conn, client = super(MySocket, self).accept()
+        conn = MySecureSocket.sslwrap_server(conn, cert)
+        self.conn["None"] = conn
+        self.conn[client] = conn
+        return conn, client
+
+#==================================================
+
+def requests_disable_warning():
+    import requests
+    requests.packages.urllib3.disable_warnings(requests.packages.urllib3.exceptions.InsecureRequestWarning)
+
+class MyFlask():
+    mflask = import_module("flask")
+
+    class APIREST():
+        def __init__(self, name, addr, *args, **kwargs):
+            MyFlask.mflask.cli.show_server_banner = lambda *args: None
+            logging.getLogger("werkzeug").disabled = True
+            self.name = name
+            self.host, self.port = addr
+            self.args, self.kwargs = args, kwargs
+
+        def __enter__(self):
+            self.app = MyFlask.mflask.Flask(self.name)
+            return self.app
+
+        def __exit__(self, *args):
+            self.app.run(host=self.host, port=self.port, *self.args, **self.kwargs)
+
+        def getAddr():
+            return (
+                MyFlask.mflask.request.remote_addr,
+                MyFlask.mflask.request.environ.get("REMOTE_PORT")
+            )
+
+        def send(msg):
+            res = MyFlask.mflask.jsonify(msg)
+            res.headers["Access-Control-Allow-Origin"] = "*"
+            return res

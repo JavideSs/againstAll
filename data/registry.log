@@ -1,0 +1,13 @@
+[2023-04-05 17:34:40,113] ('127.0.0.1', 53119) Solicita Create sobre User(alias='jms', password='123')
+[2023-04-05 17:34:40,217] User(alias='jms', password='123') se ha creado
+[2023-04-05 17:34:55,318] ('127.0.0.1', 53122) Solicita Create sobre User(alias='apg', password='123')
+[2023-04-05 17:34:55,425] User(alias='apg', password='123') se ha creado
+[2023-04-05 17:35:22,917] ('127.0.0.1', 53129) Solicita Create sobre User(alias='test', password='123')
+[2023-04-05 17:35:23,024] User(alias='test', password='123') se ha creado
+[2023-04-05 17:37:35,459] ('127.0.0.1', 53139) Solicita Create sobre User(alias='test', password='123')
+[2023-04-05 17:40:08,223] ('127.0.0.1', 53148) Solicita Update sobre User(alias='test', password='123')
+[2023-04-05 17:40:08,328] User(alias='test', password='123') se ha actualizado a User(alias='test', password='test')
+[2023-04-05 17:40:47,232] ('127.0.0.1', 53151) Solicita Update sobre User(alias='test', password='123')
+[2023-04-05 17:43:55,424] ('127.0.0.1', 53193) Solicita Delete sobre User(alias='test', password='test')
+[2023-04-05 17:43:55,543] User(alias='test', password='test') se ha eliminado
+[2023-04-05 17:44:04,781] ('127.0.0.1', 53196) Solicita Delete sobre User(alias='test', password='test')

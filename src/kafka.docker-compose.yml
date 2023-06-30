@@ -19,12 +19,27 @@ services:
       - zookeeper
     ports:
       - "29092:29092"
+      - "29093:29093"
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: SSL
       KAFKA_ADVERTISED_LISTENERS:
-        PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+        PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092,
+        SSL://kafka:9093,SSL_HOST://localhost:29093
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP:
-        PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+        PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT,
+        SSL:SSL,SSL_HOST:SSL
+      KAFKA_SSL_ENDPOINT_IDENTIFICATION_ALGORITHM: ""
+      KAFKA_SSL_CHECK_HOSTNAME: none
+      KAFKA_SSL_CLIENT_AUTH: none
+      KAFKA_SSL_TRUSTSTORE_LOCATION: /etc/kafka/secrets/truststore.jks
+      KAFKA_SSL_TRUSTSTORE_FILENAME: truststore.jks
+      KAFKA_SSL_TRUSTSTORE_CREDENTIALS: truststore_creds
+      KAFKA_SSL_KEY_CREDENTIALS: key_creds
+      KAFKA_SSL_KEYSTORE_LOCATION: /etc/kafka/secrets/keystore.jks
+      KAFKA_SSL_KEYSTORE_FILENAME: keystore.jks
+      KAFKA_SSL_KEYSTORE_CREDENTIALS: keystore_creds
+    volumes:
+      - ../keys/kafka/:/etc/kafka/secrets

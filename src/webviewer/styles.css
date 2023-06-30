@@ -1,0 +1,44 @@
+#board {
+    display: flex;
+    flex-wrap: wrap;
+    max-width: 100%;
+    max-height: 100%;
+    aspect-ratio: 1/1;
+}
+
+#board .grid {
+    width: 5%;
+    height: 5%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    font-size: medium;
+}
+
+#leaderboard {
+    border-collapse: collapse;
+    margin-top: 20px;
+}
+
+#leaderboard caption {
+    padding: 5px 10px 10px 10px;
+    background-color: rgb(130, 130, 130);
+    color: white;
+    font-size: small;
+    text-align: center;
+}
+
+#leaderboard td{
+    padding: 5px 10px;
+}
+
+#leaderboard tr:nth-child(1) {
+    background: rgb(255, 255, 225);
+}
+
+.popup {
+    z-index: 9999;
+    position: fixed;
+    padding: 5px;
+    background-color: white;
+}

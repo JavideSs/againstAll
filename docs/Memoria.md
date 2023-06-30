@@ -18,8 +18,8 @@
 </style>
 
 <p class="portada" id="asignatura">SISTEMAS DISTRIBUIDOS</p>
-<p class="portada" id="practica">- PRÁCTICA 1 -</p>
-<p class="portada" id="titulo">SOCKETS, STREAMING DE EVENTOS, COLAS Y MODULARIDAD</p>
+<p class="portada" id="practica">- PRÁCTICA 1,2,3 -</p>
+<p class="portada" id="titulo">SEGURIDAD Y API REST</p>
 <p class="portada">Javier Mellado Sánchez 48800386K</p>
 <p class="portada">Universidad de Alicante, 2022-2023</p>
 
@@ -38,19 +38,29 @@
   - [common\_utils](#common_utils)
   - [BASE DE DATOS](#base-de-datos)
   - [KAFKA](#kafka)
-  - [AA\_WEATHER](#aa_weather)
+  - [OPENWEATHER](#openweather)
     - [COMUNICACIÓN](#comunicación)
-    - [PARÁMETROS](#parámetros)
   - [AA\_REGISTRY](#aa_registry)
     - [COMUNICACIÓN](#comunicación-1)
-    - [PARÁMETROS](#parámetros-1)
+    - [PARAMETROS](#parametros)
   - [AA\_ENGINE](#aa_engine)
     - [COMUNICACIÓN](#comunicación-2)
-    - [PARÁMETROS](#parámetros-2)
+    - [PARAMETROS](#parametros-1)
+  - [API\_ENGINE](#api_engine)
+    - [COMUNICACIÓN](#comunicación-3)
+    - [PARAMETROS](#parametros-2)
   - [AA\_PLAYER](#aa_player)
-    - [PARÁMETROS](#parámetros-3)
+    - [PARAMETROS](#parametros-3)
   - [AA\_NPC](#aa_npc)
-    - [PARÁMETROS](#parámetros-4)
+    - [PARAMETROS](#parametros-4)
+  - [WEB VIEWER](#web-viewer)
+    - [URL](#url)
+- [SEGURIDAD](#seguridad)
+  - [AUDITORÍA](#auditoría)
+  - [CLAVES](#claves)
+  - [CIFRADO](#cifrado)
+    - [COMUNICACIONES](#comunicaciones)
+    - [BASE DE DATOS](#base-de-datos-1)
 - [DESPLIEGUE](#despliegue)
   - [CAÍDAS](#caídas)
 - [COMENTARIOS](#comentarios)
@@ -114,7 +124,7 @@ Si la partida aún no ha comenzado, espera a que los demás jugadores estén lis
 ![partida-esperar](images/funcionamiento-partida-esperar.png)
 
 Cuando estén todos preparados, la partida se presenta en la pantalla.
-Nuestro personaje está representado con la inicial de nuestro alias en mayúsculas.
+El personaje está representado con la inicial de nuestro alias en mayúsculas.
 
 ![partida-inicial](images/funcionamiento-partida-inicial.png)
 
@@ -136,7 +146,7 @@ Interesa coger el mayor número de alimentos posibles.
 ![partida-alimentar](images/funcionamiento-partida-alimentar1.png)
 ![partida-alimentar](images/funcionamiento-partida-alimentar2.png)
 
-Si por desgracia pisamos una mina, moriremos.
+Si por desgracia pisa una mina, morirá.
 
 ![partida-morir](images/funcionamiento-partida-morir.png)
 ![partida-morir](images/funcionamiento-partida-morir-perder.png)
@@ -170,7 +180,7 @@ Código en [src/common_utils.py](/src/common_utils.py).
 
 Contiene un conjunto de utilidades comunes a todos los módulos para facilitar sus implementaciones.
 
-Se extienden las clases de Kafka y se simplifica el manejo de un socket.
+Se extienden las clases de Kafka y API REST, y se simplifica el manejo de un socket.
 
 <br>
 
@@ -207,24 +217,17 @@ El problema es que dependen del timeout del poll, que depende a su vez de la má
 
 <br>
 
-## AA_WEATHER
+## OPENWEATHER
 
-Código en [src/AA_Weather.py](/src/AA_Weather.py).
+Servicio externo online que proporciona el tiempo.
 
-Servicio que proporciona el tiempo.
-
-Utiliza el archivo [weathers.csv](/data/weathers.csv) para obtener ciudades con su temperatura (un clima).
-
-Se queda a la escucha, por sockets, de que se hagan solicitudes para mandar climas aleatorios.
+Se solicitan los climas a través de su API.
+Clave para utilizarla en [keys/openweather.key](/keys/openweather.py).
 
 ### COMUNICACIÓN
 ```
-*Se establece la comunicación*
-client.recv_obj()
+GET -> "https://api.openweathermap.org/data/2.5/weather?appid={key}&units={units}&q={city}"
 ```
-
-### PARÁMETROS
-`args: <port>`
 
 <br>
 
@@ -234,7 +237,10 @@ Código en [src/AA_Registry.py](/src/AA_Registry.py).
 
 Servicio para el manejo de registros.
 
-Se queda a la escucha, por sockets, de que se haga una solicitud sobre un usuario (registro).
+Se queda a la escucha, por sockets y API REST, de que se haga una solicitud sobre un usuario (registro).
+
+- Por sockets corriendo en el hilo principal.
+- API REST corriendo en un hilo nuevo.
 
 La solicitud puede resultar en la creación de un perfil, en su edición o eliminación,
 toda acción repercutida sobre la base de datos.
@@ -243,16 +249,22 @@ Devuelve un texto informando la resolución de la solicitud.
 ### COMUNICACIÓN
 
 ```
+- WITH SOCKETS:
 *Se establece la comunicación*
 client.send_msg("Create"|"Update"|"Delete")
 client.send_obj(("user","password"))
 if Update:
     client.send_obj(("newuser","newpassword"))
 client.recv_msg() -> MSGOPRE
+
+- WITH APIREST:
+POST <- body{"alias":alias, "password":password} -> MSGOPRE
+PATCH <- body{"alias":alias, "password":password, "newalias":newalias, "newpassword":newpassword} -> MSGOPRE
+DELETE <- body{"alias":alias, "password":password} -> MSGOPRE
 ```
 
-### PARÁMETROS
-`args: <port>`
+### PARAMETROS
+`args: <sock_port> <api_port>`
 
 <br>
 
@@ -271,7 +283,7 @@ Una vez que todos los usuarios están listos (al menos 2 personas), la partida c
 En este punto se acaba la autenticación, los sockets son cerrados, no se volverán a utilizar.
 
 Se crea una nueva partida si la anterior acabó.
-El mapa es creado aleatoriamente, y los climas son solicitados al servicio Weather.
+El mapa es creado aleatoriamente, y los climas son solicitados al servicio OPENWEATHER.
 
 Comienza la comunicación a través de una cola Kafka.
 Inicialmente se envía el mapa a todos los jugadores.
@@ -341,10 +353,33 @@ thread2:
         client.with_kafka.recv() -> "end":{"winner:[anyalias,]"}
 ```
 
-### PARÁMETROS
+### PARAMETROS
 
-`args: -p <port> -aw <AA_Weather-ip>:<AA_Weather-port> -ak <kafka-ip>:<kafka-port(29092)>` \
+`args: -p <port> -ak <kafka-ip>:<kafka-port(29093)>` \
 `extras: -ms <mapsize> -mp <maxplayers> -t <gametimeout>`
+
+<br>
+
+## API_ENGINE
+
+Código en [src/API_Engine.py](/src/API_Engine.py).
+
+Servicio API REST del estado del juego.
+
+Únicamente expone los datos necesarios para obtener una información básica de la partida:
+el estado, el mapa, y los jugadores {alias, alive, level, pos}.
+
+### COMUNICACIÓN
+```
+GET [/status] -> status
+GET [/game] -> map
+GET [/players] -> players -> [{"alias":alias,"level":level},...]
+GET [/] -> map + players -> {"map":map, "players":players}
+```
+
+### PARAMETROS
+
+`args: <port>`
 
 <br>
 
@@ -354,7 +389,7 @@ Código en [src/AA_Player.py](/src/AA_Player.py).
 
 Cliente de un jugador.
 
-Puede comunicarse con Registry o Engine.
+Puede comunicarse con Registry o Engine. A Registry puede hacerlo por los dos tipos de comunicación.
 
 No es necesario explicar cómo funciona, su comunicación es inversa a la de los dos servicios.
 Y la interacción con el usuario puede verse en el apartado de [funcionamiento](#funcionamiento).
@@ -390,9 +425,9 @@ while True:
             break
 ```
 
-### PARÁMETROS
+### PARAMETROS
 
-`args: -ar <AA_Registry-ip>:<AA_Registry-port> -ae <AA_Engine-ip>:<AA_Engine-port> -ak <kafka-ip>:<kafka-port(29092)>` \
+`args: -ar <AA_Registry-ip>:<AA_Registry-port> -ae <AA_Engine-ip>:<AA_Engine-port> -ak <kafka-ip>:<kafka-port(29093)>` \
 `extras: -ms <mapsize>`
 
 <br>
@@ -439,10 +474,127 @@ while True:
     time.sleep(SLEEPTIME)
 ```
 
-### PARÁMETROS
+### PARAMETROS
 
-`args: -ak <kafka-ip>:<kafka-port(29092)>` \
+`args: -ak <kafka-ip>:<kafka-port(29093)>` \
 `args extras: -t type> -s sleeptime>`
+
+<br>
+
+## WEB VIEWER
+
+Código en [src/webviewer/](/src/webviewer/).
+
+Cliente WEB visor del juego.
+
+La página consta del tablero del juego y la tabla de clasificaciones.
+
+La forma más sencilla de hacerlo es usando los tres principales elementos del front de una página web:
+- HTML: Lenguaje de marcado para la interfaz
+- CSS: Lenguaje de estilos para la interfaz
+- JAVASCRIPT: Lenguaje de programación para dotar de funcionalidad la interfaz.
+
+Cada segundo, se realiza una solicitud de todos los datos a la API,
+y se actualizan los elementos de la página.
+Solo muestra información si hay una partida en curso.
+
+Tener que distribuir el proyecto web a cada usuario no es práctico. Se comenta en el apartado de [despliegue](#despliegue).
+
+![webviewer1](images/arquitectura-webviewer1.png)
+![webviewer2](images/arquitectura-webviewer2.png)
+
+### URL
+
+`index.html?addr=https://<API_Engine-ip>:<API_Engine-port>`
+
+<br><br>
+<!--<div style="page-break-after: always;"></div>-->
+
+# SEGURIDAD
+
+## AUDITORÍA
+
+Para el servicio Registry es indispensable conocer los registros que se realizan.
+
+En [data/registry.log](/data/registry.log) hay un ejemplo.
+
+Hay constancia de la operación, con sus propiedades (fecha,hora,direccion), y la acción tomada si al final es aceptada.
+
+<br>
+
+## CLAVES
+
+Claves utilizadas en [keys/](/keys/).
+
+Bastaría con crear una clave privada y un certificado autofirmado.
+
+```
+openssl req -x509 -newkey rsa:4096 -nodes -days 36500 -subj "/C=ES/ST=Alicante/L=Alicante/O=UA/OU=SD/CN=jms138.ua" -out cert.pem -keyout key.pem
+```
+
+Para kafka, es recomendable utilizar un almacén de claves y certificados JKS.
+
+```
+keytool -genkey -keyalg RSA -ext san=dns:localhost,ip:127.0.0.1 -alias selfsigned -storepass jms138 --keypass jms138 -validity 36500 -dname "CN=localhost, OU=Unknown, O=Unknown, L=Unknown, ST=Unknown, C=Unknown" -keystore keystore.jks
+keytool -export -keystore keystore.jks -alias selfsigned -storepass jms138 -file selfsigned.crt
+keytool -import -file selfsigned.crt -trustcacerts -alias selfsigned -storepass jms138 -keystore truststore.jks -noprompt
+echo "jms138" > keystore_creds
+echo "jms138" > truststore_creds
+echo "jms138" > key_creds
+```
+
+<br>
+
+## CIFRADO
+
+### COMUNICACIONES
+
+Para obviar la configuración de la seguridad en cada módulo, únicamente se amplía la extensión de las clases para las comunicaciones.
+
+***Mykafka/***: Conforme la especificación del docker, bastaría con especificar que el protocolo de seguridad sea SSL y crear un contexto para que no verifique el certificado y máquina.
+
+- Sin cifrado puede verse el mensaje (Protocolo TCP-TLS): \
+![cifrado-kafka](images/seguridad-cifrado-comunicaciones-kafka1.png)
+- Con cifrado está oculto (Protocolo TCP): \
+![cifrado-kafka](images/seguridad-cifrado-comunicaciones-kafka2.png)
+
+***MySecureSocket***: El contexto SSL permite modificar directamente el socket para obtener uno seguro. En el caso del servidor, al aceptar el cliente, se crea el socket seguro y se le carga la clave y certificado. En el del cliente, al crear su socket, se crea el socket seguro con un contexto que no verifique el certificado y máquina.
+
+- Sin cifrado puede verse el registro (Protocolo TCP-TLS): \
+![cifrado-sockets](images/seguridad-cifrado-comunicaciones-sockets1.png)
+- Con cifrado está oculto (Protocolo TCP): \
+![cifrado-sockets](images/seguridad-cifrado-comunicaciones-sockets2.png)
+
+
+***MyFlask/***: Más sencillo, únicamente se pasa la clave y certificado por parámetros.
+
+- Con cifrado el mensaje está oculto (Protocolo TCP-TLS): \
+![cifrado-apirest](images/seguridad-cifrado-comunicaciones-apirest.png)
+
+### BASE DE DATOS
+
+En la base de datos existen campos confidenciales que deben ser protegidos ante su robo.
+
+Las contraseñas nunca deben guardarse en texto plano. Aplicar una función Hash asegura que sea muy difícil conocer la contraseña real. Además, aplicando sal a la combinación se añade una capa más de seguridad, lo que asegura que, aunque dos usuarios tengan la misma contraseña, sean almacenadas diferentes y, por lo tanto, a un atacante no le sirva un diccionario de Hashes para adivinar la contraseña.
+
+Para crear una contraseña:
+1. Al crear la contraseña se crea un cadena de caracteres aleatorios que servirá como sal.
+2. La contraseña se une con la sal, y se genera un Hash de la combinación.
+3. El Hash y la sal se guarda, junto con los datos del usuario, en la base de datos.
+
+Para validar un intento de contraseña:
+1. Se solicita el Hash y la sal a la base de datos.
+2. La contraseña se une con la sal, y se genera un Hash de la combinación.
+3. Se compara el Hash de la base de datos con el generado.
+
+```python
+def user_correct_login_db(user):
+    user_fetch = select_user_db(user.alias)
+    if user_fetch is None:
+        return False
+    salt, hash = user_fetch.password
+    return hash == hashpasswd(user.password, salt)[1]
+```
 
 <br><br>
 <!--<div style="page-break-after: always;"></div>-->
@@ -476,9 +628,12 @@ python <service>.py <params...>
 - Puede ser que un servicio sea además un cliente de otro servicio, como es el caso con el Engine.
 
 Para desplegar Kafka, al ser un servicio de terceros, hay que cumplir con sus requisitos, que pueden variar según el sistema.
-Para evitarlo se ha dockerizado, de tal forma que sólo necesitaríamos instalar docker y docker-compose.
+Para evitarlo se ha dockerizado, de tal forma que sólo se necesita instalar docker y docker-compose.
 
 De igual manera, podría haberse servido un docker para cada servicio, pero realmente el sistema no es difícil de desplegarlo como para necesitarlo.
+
+El webviewer puede usarse abriendo el archivo HTML en el navegador, o creando un servidor web con la página.
+Con docker es muy sencillo desplegar un servidor nginx. Especificación en [src/webviewer.dockerfile](/src/webviewer.dockerfile). Se necesita un visor web como Firefox/Chrome/Edge para visualizar el webviewer.
 
 El sistema ha sido probado en Windows y Linux.
 Evidentemente, el jugador necesita una terminal que soporte curses.
@@ -503,17 +658,21 @@ Si tuviéramos el *escenario físico mínimo para el despliegue de la práctica*
 ```bash
 #! Cambiar en kafka.docker-compose.yml "localhost" por "192.168.56.11"
 $ sudo docker-compose -f kafka.docker-compose.yml up
-$ python AA_Wetaher.py 1111
+$ sudo docker run --name webviewer -p 8080:80 webviewer
+$ python AA_Player.py -ar "https://192.168.56.12:2220" -ae "192.168.56.12:3333" -ak "192.168.56.11:29093"
+# navegador_web >> http://192.168.56.11:8080/?addr=https://192.168.56.12:4444
 ```
 - PC2 [192.168.56.12]
 ```bash
-$ python AA_Engine.py -p 3333 -aw "192.168.56.11:1111" -ak "192.168.56.11:29092"
-$ python AA_Registry.py 2222
+$ python AA_Engine.py -p 3333 -ak "192.168.56.11:29093"
+$ python API_Engine.py 4444
+$ python AA_Registry.py 2222 2220
 ```
 - PC3 [192.168.56.13]
 ```bash
-$ python AA_Player.py -ar "192.168.56.12:2222" -ae "192.168.56.12:3333" -ak "192.168.56.11:29092"
-$ python AA_NPC.py -ak "192.168.56.11:29092"
+$ python AA_Player.py -ar "https://192.168.56.12:2220" -ae "192.168.56.12:3333" -ak "192.168.56.11:29093"
+$ python AA_Player.py -ar "https://192.168.56.12:2220" -ae "192.168.56.12:3333" -ak "192.168.56.11:29093"
+$ python AA_NPC.py -ak "192.168.56.11:29093"
 ```
 
 <br>
@@ -523,8 +682,9 @@ $ python AA_NPC.py -ak "192.168.56.11:29092"
 Si un módulo se cae, no interrumpe bruscamente la ejecución de los demás. Se informará o se esperará a que el módulo sea nuevamente recuperado.
 
 Pueden pasar las siguientes situaciones:
-- Engine si Weather está inactivo: Se le informa y espera a que se recupere. \
+- Engine si OPENWEATHER está inactivo: Se le informa y espera a que se recupere. Pero es muy raro que ocurra, es un servicio estable continuo.\
 ![caida-engine-weather](images/despliegue-caida-engine-weather.png)
+(Ejemplo de la práctica anterior)
 - Engine si Kafka está inactivo: Nunca será el caso. Falla antes el Player, el Engine no puede llegar al punto de crear partida.
 - Engine si Kafka no responde: No se reciben nuevos movimientos. No interrumpe nada.
 
@@ -535,6 +695,8 @@ Pueden pasar las siguientes situaciones:
 
 - Player o NPC si Engine no responde: No se reciben nuevos mapas, descartando los movimientos. No interrumpe nada.
 - Player o NPC si kafka no está activo: No se reciben ni envían nuevos mapas. No interrumpe nada.
+- WEB viewer si la API REST no está activa:
+![caida-webviewer-apirest](images/despliegue-caida-webviewer-apirest.png)
 
 - Módulos correspondientes si la base de datos no existe: Al comienzo de cada uno se comprueba, si es así, es creada.
 
@@ -569,3 +731,14 @@ Algunas mejoras que aún pueden realizarse son:
 - Avisar en el cliente cuando el Engine o Kafka ha caído.
 - Descartar movimiento cuando Kafka ha caído.
 - Utilizar un lenguaje compilado para los módulos cliente, así se facilita su distribución.
+
+- Evitar un ataque con SQL injector.
+- Autenticación en Kafka.
+- Evitar que un atacante mueva a un jugador.
+  - *Problema*: El engine mueve a un jugador por su alias, orden enviada del jugador por kafka
+      Entonces un atacante podría mover a un jugador enviando el movimiento a kafka con el alias del jugador afectado.
+  - *Solución*: En la autenticación por sockets para comenzar la partida
+      En lugar del "ready", el jugador podría finalizar la conexión pasándole un texto aleatorio.
+      De tal forma que únicamente el engine y el jugador conocen el id con el que se le reconoce para moverse.
+      Podría ser de la misma forma con la que se le reconoce a los NPCs.
+      Del Engine no debería haber una salida que exponga el id, tanto para jugadores como NPCs
